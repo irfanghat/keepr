@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Keepr | Quick & Secure Content Management</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/style.css">
+    <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
+    <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+</head>
+
+<body>
+
+    <div id="app">
+        <div v-if="!unlocked" class="auth-overlay">
+            <div class="auth-card">
+                <div class="logo-wrapper">
+                    <img src="./assets/logos/logo-icon-no-bg.png" alt="logo" class="logo">
+                </div>
+                <p style="color: var(--text-muted); margin-bottom: 24px;">Secure Client-Side Encryption</p>
+
+                <div class="disclaimer-box">
+                    <strong>Security Protocol</strong><br><br>
+                    Keepr uses <strong>AES-256-GCM</strong> encryption. Your <strong>master key</strong> is the
+                    <strong>only</strong> way to access
+                    this data.
+                    <ul style="margin: 8px 0 0 0; padding-left: 18px;">
+                        <li>Key is never stored or sent to a server.</li>
+                        <li>Lost keys result in <strong>permanent data loss</strong>.</li>
+                        <li>The key is required to read or copy any content.</li>
+                    </ul>
+                </div>
+
+                <input v-model="password" type="password" placeholder="Master Key" @keyup.enter="unlock" autofocus>
+                <button class="btn-action" @click="unlock">Access Vault</button>
+            </div>
+        </div>
+
+        <div class="app-shell" v-else>
+            <aside class="sidebar">
+                <div class="side-bar-logo" style="margin-bottom: 32px;">
+                    <img src="./assets/logos/logo-icon-no-bg.png" alt="logo">
+                </div>
+
+                <div class="nav-item" :class="{active: view === 'drive'}" @click="view = 'drive'">
+                    <ion-icon name="albums"></ion-icon>
+                    Storage Drive
+                </div>
+                <div class="nav-item" :class="{active: view === 'analytics'}" @click="view = 'analytics'">
+                    <ion-icon name="analytics"></ion-icon>
+                    Usage
+                    Analytics
+                </div>
+                <div class="nav-item" :class="{active: view === 'settings'}" @click="view = 'settings'">
+                    <ion-icon name="cog"></ion-icon>
+                    Vault
+                    Settings
+                </div>
+
+                <div style="margin-top: auto;">
+                    <button class="btn-action" @click="$refs.fileInput.click()">
+                        <ion-icon name="add-circle"></ion-icon>
+                        Upload Entry
+                    </button>
+                    <input type="file" ref="fileInput" style="display:none" @change="handleFile">
+                    <button @click="lock"
+                        style="width: 100%; margin-top: 12px; background: none; border: 1px solid var(--border); padding: 10px; border-radius: 8px; cursor: pointer;">Lock
+                        Session</button>
+                </div>
+            </aside>
+
+            <div class="main-wrapper">
+                <header
+                    style="padding: 16px 32px; background: white; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; text-transform: capitalize;">{{ view.replace('-', ' ') }}</h3>
+                    <div v-if="view === 'drive'" style="font-size: 13px; color: var(--text-muted);">{{ items.length }}
+                        assets secured</div>
+                </header>
+
+                <div class="content-area" @paste="handlePaste">
+
+                    <div v-if="view === 'drive'">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Asset Name</th>
+                                    <th>Type</th>
+                                    <th>Size</th>
+                                    <th>Added</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="item in items" @click="openPreview(item)"
+                                    :style="selected && selected.id === item.id ? 'background: var(--active-item); border-left: 4px solid var(--primary)' : ''">
+                                    <td style="font-weight: 500;">{{ item.name }}</td>
+                                    <td><span
+                                            style="font-size: 10px; font-weight: 600; padding: 2px 6px; border: 1px solid #ddd; border-radius: 4px;">{{
+                                            item.isText ? 'TEXT' : 'FILE' }}</span></td>
+                                    <td>{{ item.size }} KB</td>
+                                    <td>{{ new Date(item.timestamp).toLocaleDateString() }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div v-if="view === 'analytics'">
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-val">{{ items.length }}</div>
+                                <div class="stat-label">Total Items</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-val">{{ totalSize }} KB</div>
+                                <div class="stat-label">Space Occupied</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-val">GCM</div>
+                                <div class="stat-label">Mode of Auth</div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h4 style="margin-top: 0;">Resource Distribution</h4>
+                            <div style="display: flex; gap: 40px;">
+                                <p style="font-size: 14px;"><strong>Snippets:</strong> {{ items.filter(i =>
+                                    i.isText).length }}</p>
+                                <p style="font-size: 14px;"><strong>Files:</strong> {{ items.filter(i =>
+                                    !i.isText).length }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="view === 'settings'">
+                        <div class="card">
+                            <h4 style="margin-top: 0;">System Information</h4>
+                            <p style="font-size: 14px; margin: 8px 0;"><strong>Protocol:</strong> PBKDF2 / AES-256-GCM
+                            </p>
+                            <p style="font-size: 14px; margin: 8px 0;"><strong>Database:</strong> Local IndexedDB</p>
+                        </div>
+                        <div class="card" style="border-color: #fecaca;">
+                            <h4 style="margin-top: 0; color: #b91c1c;">Factory Reset</h4>
+                            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 20px;">Deleting the
+                                vault will clear the local encryption salt and all stored blobs. This action is
+                                IRREVERSIBLE.</p>
+                            <button class="btn-danger" @click="purgeVault">Wipe All Data</button>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <aside class="preview-panel" :class="{open: previewOpen && view === 'drive'}">
+                <div v-if="selected"
+                    style="padding: 32px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+                        <div>
+                            <h3 style="margin: 0;">Asset Preview</h3>
+                            <p style="font-size: 12px; color: var(--text-muted);">{{ selected.name }}</p>
+                        </div>
+                        <button @click="previewOpen = false"
+                            style="background: none; border: none; font-size: 28px; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <div style="flex: 1; overflow-y: auto;">
+                        <div v-if="selected.isText">
+                            <pre
+                                style="background: #f3f4f6; padding: 20px; border-radius: 12px; font-size: 13px; white-space: pre-wrap; border: 1px solid var(--border);">{{ previewContent }}</pre>
+                            <button class="btn-action" @click="copy">Copy to Clipboard</button>
+                        </div>
+                        <div v-else style="text-align: center; padding: 60px 0;">
+                            <div style="font-size: 64px; margin-bottom: 16px;">
+                                <ion-icon name="cube"></ion-icon>
+                            </div>
+                            <p style="color: var(--text-muted);">Encrypted Binary Object</p>
+                            <button class="btn-action" @click="download">Decrypt & Download</button>
+                        </div>
+                    </div>
+
+                    <button @click="deleteItem(selected.id)"
+                        style="width:100%; margin-top: 20px; background: none; border: 1px solid #fee2e2; color: #b91c1c; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600;">Delete
+                        Entry</button>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script src="./js/script.js"></script>
+</body>
+
+</html>
