@@ -4,188 +4,313 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Keepr | Quick & Secure Content Management</title>
+    <title>Keepr | Secure Vault</title>
+    <link rel="shortcut icon" href="./assets/icons/favicon.ico" type="image/x-icon">
+    <link rel="manifest" href="assets/icons/site.webmanifest">
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="./css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
     <script type="module" src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.esm.js"></script>
     <script nomodule src="https://unpkg.com/ionicons@7.1.0/dist/ionicons/ionicons.js"></script>
+
+    <link rel="stylesheet" href="./css/style.css">
 </head>
 
 <body>
-
     <div id="app">
+
+        <!-- Toast Container -->
+        <div class="toast-container" aria-live="polite">
+            <transition-group name="toast">
+                <div v-for="t in toasts" :key="t.id" :class="['toast', `toast--${t.type}`]" role="alert">
+                    <!-- Status icon -->
+                    <ion-icon class="toast__icon"
+                        :name="t.type === 'success' ? 'checkmark-circle' : t.type === 'error' ? 'alert-circle' : 'information-circle'"></ion-icon>
+
+                    <!-- Content -->
+                    <div class="toast__body">
+                        <div class="toast__context">{{ t.context }}</div>
+                        <div class="toast__message">{{ t.message }}</div>
+                        <div v-if="t.action" class="toast__action">
+                            <strong>Fix:</strong> {{ t.action }}
+                        </div>
+                    </div>
+
+                    <!-- Dismiss -->
+                    <button class="toast__close" @click="dismissToast(t.id)" aria-label="Dismiss">
+                        <ion-icon name="close"></ion-icon>
+                    </button>
+
+                    <!-- Auto-dismiss progress bar -->
+                    <div class="toast__bar"></div>
+                </div>
+            </transition-group>
+        </div>
+
+        <!-- Auth screen -->
         <div v-if="!unlocked" class="auth-overlay">
             <div class="auth-card">
-                <div class="logo-wrapper">
-                    <img src="./assets/logos/logo-icon-no-bg.png" alt="logo" class="logo">
+
+                <div class="auth-brand">
+                    <div class="auth-brand-icon">
+                        <img src="./assets/logos/logo-icon-no-bg.png" alt="Keepr logo" />
+                    </div>
+                    <h1>Keepr</h1>
                 </div>
-                <p style="color: var(--text-muted); margin-bottom: 24px;">Secure Client-Side Encryption</p>
+                <p class="auth-subtitle">Client-Side Encrypted Vault · AES-256-GCM</p>
 
                 <div class="disclaimer-box">
-                    <strong>Security Protocol</strong><br><br>
-                    Keepr uses <strong>AES-256-GCM</strong> encryption. Your <strong>master key</strong> is the
-                    <strong>only</strong> way to access
-                    this data.
-                    <ul style="margin: 8px 0 0 0; padding-left: 18px;">
-                        <li>Key is never stored or sent to a server.</li>
-                        <li>Lost keys result in <strong>permanent data loss</strong>.</li>
-                        <li>The key is required to read or copy any content.</li>
+                    <div class="disc-heading">
+                        <ion-icon name="warning-outline"></ion-icon>
+                        Security Notice
+                    </div>
+                    <ul>
+                        <li>Your master key is <strong>never stored or transmitted</strong>.</li>
+                        <li>Data loss from a forgotten key is <strong>permanent and irrecoverable</strong>.</li>
+                        <li>The key is required to read, copy, or download any stored content.</li>
                     </ul>
                 </div>
 
-                <input v-model="password" type="password" placeholder="Master Key" @keyup.enter="unlock" autofocus>
-                <button class="btn-action" @click="unlock">Access Vault</button>
+                <input class="auth-input" v-model="password" type="password" placeholder="Enter Master Key"
+                    @keyup.enter="unlock" autofocus />
+
+                <button class="btn-primary" @click="unlock" :disabled="isUnlocking">
+                    <div v-if="isUnlocking" class="spinner"></div>
+                    <ion-icon v-else name="lock-open-outline"></ion-icon>
+                    {{ isUnlocking ? 'Deriving Key…' : 'Access Vault' }}
+                </button>
+
             </div>
         </div>
 
+        <!-- App shell -->
         <div class="app-shell" v-else>
+
+            <!-- Sidebar -->
             <aside class="sidebar">
-                <div class="side-bar-logo" style="margin-bottom: 32px;">
-                    <img src="./assets/logos/logo-icon-no-bg.png" alt="logo">
+
+                <div class="sidebar-brand">
+                    <div class="sidebar-brand-icon">
+                        <img src="./assets/logos/logo-icon-no-bg.png" alt="Keepr" />
+                    </div>
+                    <span class="sidebar-brand-name">Keepr</span>
                 </div>
 
+                <div class="nav-label">Workspace</div>
+
                 <div class="nav-item" :class="{active: view === 'drive'}" @click="view = 'drive'">
-                    <ion-icon name="albums"></ion-icon>
+                    <ion-icon name="albums-outline"></ion-icon>
                     Storage Drive
                 </div>
                 <div class="nav-item" :class="{active: view === 'analytics'}" @click="view = 'analytics'">
-                    <ion-icon name="analytics"></ion-icon>
-                    Usage
-                    Analytics
+                    <ion-icon name="analytics-outline"></ion-icon>
+                    Usage Analytics
                 </div>
                 <div class="nav-item" :class="{active: view === 'settings'}" @click="view = 'settings'">
-                    <ion-icon name="cog"></ion-icon>
-                    Vault
-                    Settings
+                    <ion-icon name="settings-outline"></ion-icon>
+                    Vault Settings
                 </div>
 
-                <div style="margin-top: auto;">
-                    <button class="btn-action" @click="$refs.fileInput.click()">
-                        <ion-icon name="add-circle"></ion-icon>
+                <div class="sidebar-footer">
+                    <button class="btn-upload" @click="$refs.fileInput.click()">
+                        <ion-icon name="cloud-upload-outline"></ion-icon>
                         Upload Entry
                     </button>
-                    <input type="file" ref="fileInput" style="display:none" @change="handleFile">
-                    <button @click="lock"
-                        style="width: 100%; margin-top: 12px; background: none; border: 1px solid var(--border); padding: 10px; border-radius: 8px; cursor: pointer;">Lock
-                        Session</button>
+                    <input type="file" ref="fileInput" style="display:none" @change="handleFile" />
+
+                    <button class="btn-lock" @click="lock">
+                        <ion-icon name="lock-closed-outline"></ion-icon>
+                        Lock Session
+                    </button>
                 </div>
+
             </aside>
 
+            <!-- Main Content -->
             <div class="main-wrapper">
-                <header
-                    style="padding: 16px 32px; background: white; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin: 0; text-transform: capitalize;">{{ view.replace('-', ' ') }}</h3>
-                    <div v-if="view === 'drive'" style="font-size: 13px; color: var(--text-muted);">{{ items.length }}
-                        assets secured</div>
+
+                <header class="main-header">
+                    <h2>{{ { drive: 'Storage Drive', analytics: 'Usage Analytics', settings: 'Vault Settings' }[view] }}
+                    </h2>
+                    <span v-if="view === 'drive'" class="header-badge">
+                        {{ items.length }} asset{{ items.length !== 1 ? 's' : '' }} secured
+                    </span>
                 </header>
 
                 <div class="content-area" @paste="handlePaste">
 
+                    <!-- Drive -->
                     <div v-if="view === 'drive'">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>Asset Name</th>
-                                    <th>Type</th>
-                                    <th>Size</th>
-                                    <th>Added</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="item in items" @click="openPreview(item)"
-                                    :style="selected && selected.id === item.id ? 'background: var(--active-item); border-left: 4px solid var(--primary)' : ''">
-                                    <td style="font-weight: 500;">{{ item.name }}</td>
-                                    <td><span
-                                            style="font-size: 10px; font-weight: 600; padding: 2px 6px; border: 1px solid #ddd; border-radius: 4px;">{{
-                                            item.isText ? 'TEXT' : 'FILE' }}</span></td>
-                                    <td>{{ item.size }} KB</td>
-                                    <td>{{ new Date(item.timestamp).toLocaleDateString() }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div v-if="items.length === 0" class="empty-state">
+                            <ion-icon name="shield-checkmark-outline"></ion-icon>
+                            <p>Your vault is empty</p>
+                            <span>Paste any text or upload a file to create your first encrypted entry</span>
+                        </div>
+                        <div v-else class="table-wrap">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Asset Name</th>
+                                        <th>Type</th>
+                                        <th>Size</th>
+                                        <th>Added</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="item in items" :key="item.id"
+                                        :class="{ 'row-active': selected && selected.id === item.id }"
+                                        @click="openPreview(item)">
+                                        <td style="font-weight:500;">{{ item.name }}</td>
+                                        <td><span class="type-badge">{{ item.isText ? 'TEXT' : 'FILE' }}</span></td>
+                                        <td style="color:var(--text-muted);">{{ item.size }} KB</td>
+                                        <td style="color:var(--text-muted);">
+                                            {{ new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short',
+                                            day: 'numeric', year: 'numeric' }) }}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
+                    <!-- Analytics -->
                     <div v-if="view === 'analytics'">
                         <div class="stats-grid">
                             <div class="stat-card">
-                                <div class="stat-val">{{ items.length }}</div>
-                                <div class="stat-label">Total Items</div>
+                                <div class="stat-card__label">Total Items</div>
+                                <div class="stat-card__value">{{ items.length }}</div>
+                                <div class="stat-card__sub">
+                                    {{ items.filter(i => i.isText).length }} snippets &nbsp;·&nbsp; {{ items.filter(i =>
+                                    !i.isText).length }} files
+                                </div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-val">{{ totalSize }} KB</div>
-                                <div class="stat-label">Space Occupied</div>
+                                <div class="stat-card__label">Space Occupied</div>
+                                <div class="stat-card__value">
+                                    {{ totalSize }}<span
+                                        style="font-size:14px;font-weight:500;color:var(--text-muted);"> KB</span>
+                                </div>
+                                <div class="stat-card__sub">Encrypted payload size</div>
                             </div>
                             <div class="stat-card">
-                                <div class="stat-val">GCM</div>
-                                <div class="stat-label">Mode of Auth</div>
+                                <div class="stat-card__label">Auth Mode</div>
+                                <div class="stat-card__value" style="font-size:18px;letter-spacing:0;">GCM</div>
+                                <div class="stat-card__sub">Galois/Counter Mode</div>
                             </div>
                         </div>
                         <div class="card">
-                            <h4 style="margin-top: 0;">Resource Distribution</h4>
-                            <div style="display: flex; gap: 40px;">
-                                <p style="font-size: 14px;"><strong>Snippets:</strong> {{ items.filter(i =>
-                                    i.isText).length }}</p>
-                                <p style="font-size: 14px;"><strong>Files:</strong> {{ items.filter(i =>
-                                    !i.isText).length }}</p>
-                            </div>
+                            <h4>Encryption Protocol</h4>
+                            <div class="card-row"><span class="card-key">Algorithm</span><span
+                                    class="card-val">AES-256-GCM</span></div>
+                            <div class="card-row"><span class="card-key">KDF</span><span class="card-val">PBKDF2-SHA256,
+                                    100,000 iterations</span></div>
+                            <div class="card-row"><span class="card-key">IV Length</span><span class="card-val">96-bit
+                                    random nonce (per entry)</span></div>
+                            <div class="card-row"><span class="card-key">Key Storage</span><span
+                                    class="card-val">In-memory only · Never persisted</span></div>
+                            <div class="card-row"><span class="card-key">Database</span><span class="card-val">Local
+                                    IndexedDB (Encrypted blobs)</span></div>
                         </div>
                     </div>
 
+                    <!-- Settings -->
                     <div v-if="view === 'settings'">
                         <div class="card">
-                            <h4 style="margin-top: 0;">System Information</h4>
-                            <p style="font-size: 14px; margin: 8px 0;"><strong>Protocol:</strong> PBKDF2 / AES-256-GCM
-                            </p>
-                            <p style="font-size: 14px; margin: 8px 0;"><strong>Database:</strong> Local IndexedDB</p>
+                            <h4>System Information</h4>
+                            <div class="card-row"><span class="card-key">Protocol</span><span class="card-val">PBKDF2 /
+                                    AES-256-GCM</span></div>
+                            <div class="card-row"><span class="card-key">Database</span><span class="card-val">Local
+                                    IndexedDB</span></div>
+                            <div class="card-row"><span class="card-key">Key Storage</span><span
+                                    class="card-val">Session memory only</span></div>
                         </div>
-                        <div class="card" style="border-color: #fecaca;">
-                            <h4 style="margin-top: 0; color: #b91c1c;">Factory Reset</h4>
-                            <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 20px;">Deleting the
-                                vault will clear the local encryption salt and all stored blobs. This action is
-                                IRREVERSIBLE.</p>
-                            <button class="btn-danger" @click="purgeVault">Wipe All Data</button>
+                        <div class="card card--danger">
+                            <h4>Factory Reset</h4>
+                            <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.65;">
+                                Wiping the vault permanently deletes the encryption salt and all stored ciphertext.
+                                <strong style="color:var(--danger-text);">This action is completely
+                                    irreversible.</strong>
+                                Ensure you have exported any critical data before proceeding.
+                            </p>
+                            <button class="btn-danger" @click="purgeVault">
+                                <ion-icon name="warning-outline"></ion-icon>
+                                Wipe All Data
+                            </button>
                         </div>
                     </div>
 
                 </div>
             </div>
 
-            <aside class="preview-panel" :class="{open: previewOpen && view === 'drive'}">
-                <div v-if="selected"
-                    style="padding: 32px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;">
-                    <div
-                        style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+            <!-- Preview Panel -->
+            <aside class="preview-panel" :class="{ open: previewOpen && view === 'drive' }">
+                <div v-if="selected" style="display:flex;flex-direction:column;height:100%;">
+
+                    <!-- Header -->
+                    <div class="preview-hd">
                         <div>
-                            <h3 style="margin: 0;">Asset Preview</h3>
-                            <p style="font-size: 12px; color: var(--text-muted);">{{ selected.name }}</p>
+                            <div class="preview-hd-title">Asset Preview</div>
+                            <div class="preview-hd-name">{{ selected.name }}</div>
                         </div>
-                        <button @click="previewOpen = false"
-                            style="background: none; border: none; font-size: 28px; cursor: pointer;">&times;</button>
+                        <button class="preview-close" @click="previewOpen = false" aria-label="Close preview">
+                            <ion-icon name="close-outline"></ion-icon>
+                        </button>
                     </div>
 
-                    <div style="flex: 1; overflow-y: auto;">
-                        <div v-if="selected.isText">
-                            <pre
-                                style="background: #f3f4f6; padding: 20px; border-radius: 12px; font-size: 13px; white-space: pre-wrap; border: 1px solid var(--border);">{{ previewContent }}</pre>
-                            <button class="btn-action" @click="copy">Copy to Clipboard</button>
-                        </div>
-                        <div v-else style="text-align: center; padding: 60px 0;">
-                            <div style="font-size: 64px; margin-bottom: 16px;">
-                                <ion-icon name="cube"></ion-icon>
+                    <!-- Body -->
+                    <div class="preview-body">
+
+                        <!-- Text asset -->
+                        <template v-if="selected.isText">
+                            <!-- Structured error callout -->
+                            <div v-if="previewError" class="err-callout">
+                                <ion-icon name="alert-circle"></ion-icon>
+                                <div>
+                                    <div class="err-callout__context">{{ previewError.context }}</div>
+                                    <div class="err-callout__message">{{ previewError.message }}</div>
+                                    <div class="err-callout__action">
+                                        <strong>Suggested fix:</strong> {{ previewError.action }}
+                                    </div>
+                                </div>
                             </div>
-                            <p style="color: var(--text-muted);">Encrypted Binary Object</p>
-                            <button class="btn-action" @click="download">Decrypt & Download</button>
-                        </div>
+
+                            <!-- Decrypted content -->
+                            <template v-else>
+                                <pre class="preview-code">{{ previewContent }}</pre>
+                                <button class="btn-preview" @click="copy">
+                                    <ion-icon name="copy-outline"></ion-icon>
+                                    Copy to Clipboard
+                                </button>
+                            </template>
+                        </template>
+
+                        <!-- Binary asset -->
+                        <template v-else>
+                            <div class="preview-file">
+                                <ion-icon name="document-outline"></ion-icon>
+                                <p>Encrypted Binary Object</p>
+                            </div>
+                            <button class="btn-preview" @click="download">
+                                <ion-icon name="download-outline"></ion-icon>
+                                Decrypt &amp; Download
+                            </button>
+                        </template>
+
                     </div>
 
-                    <button @click="deleteItem(selected.id)"
-                        style="width:100%; margin-top: 20px; background: none; border: 1px solid #fee2e2; color: #b91c1c; padding: 12px; border-radius: 8px; cursor: pointer; font-weight: 600;">Delete
-                        Entry</button>
+                    <!-- Footer -->
+                    <div class="preview-ft">
+                        <button class="btn-del" @click="deleteItem(selected.id)">
+                            <ion-icon name="trash-outline"></ion-icon>
+                            Delete Entry
+                        </button>
+                    </div>
+
                 </div>
             </aside>
-        </div>
-    </div>
+
+        </div><!-- /app-shell -->
+    </div><!-- /app -->
 
     <script src="./js/script.js"></script>
 </body>
