@@ -738,8 +738,10 @@ body {
 
 .main-header {
     padding: 0 28px;
+    margin: 1rem;
     height: 54px;
     background: var(--bg-white);
+    border-radius: var(--r-xl);
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;

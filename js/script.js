@@ -33,13 +33,14 @@ createApp({
             previewOpen: false,
             previewContent: '',
             previewError: null,
+            canDelete: false,
 
             /*  Toast Queue  */
             toasts: [],
 
             /* Inline name editing */
-            editingId: null,   // id of the item currently being renamed
-            editingName: '',     // current value of the rename input
+            editingId: null,   // Id of the item currently being renamed
+            editingName: '',     // Current value of the rename input
 
             /* Session timeout */
             showTimeoutWarning: false,
@@ -125,7 +126,7 @@ createApp({
             this.resetSessionTimer();
         },
 
-        /** Arm (or re-arm) the 30-minute countdown. */
+        /** Arm, or re-arm the 30-minute countdown. */
         resetSessionTimer() {
             clearTimeout(this._sessionTimer);
             this._sessionTimer = setTimeout(
@@ -271,49 +272,88 @@ createApp({
             }
         },
 
-
         /********************************************
            VAULT OPERATIONS
         ********************************************/
 
         /** Derive CryptoKey from master password via PBKDF2, then unlock. */
         async unlock() {
-            if (!this.password || this.isUnlocking) return;
+
+            if (this.isUnlocking) return;
+
+            const password = this.password?.trim();
+
+            if (!password) {
+                this.showToast(
+                    'error',
+                    'Master Key Required',
+                    'Please enter your master key to unlock the vault.'
+                );
+                return;
+            }
+
             this.isUnlocking = true;
+
             try {
+
                 const tx = this.db.transaction('meta', 'readwrite');
+
                 let salt = await new Promise(r => {
                     const g = tx.objectStore('meta').get('salt');
                     g.onsuccess = () => r(g.result);
                 });
+
                 if (!salt) {
                     salt = crypto.getRandomValues(new Uint8Array(16));
                     tx.objectStore('meta').put(salt, 'salt');
                 }
+
                 const keyMat = await crypto.subtle.importKey(
-                    'raw', new TextEncoder().encode(this.password),
-                    'PBKDF2', false, ['deriveKey']
+                    'raw',
+                    new TextEncoder().encode(password),
+                    'PBKDF2',
+                    false,
+                    ['deriveKey']
                 );
+
                 this.cryptoKey = await crypto.subtle.deriveKey(
-                    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+                    {
+                        name: 'PBKDF2',
+                        salt,
+                        iterations: 100000,
+                        hash: 'SHA-256'
+                    },
                     keyMat,
-                    { name: 'AES-GCM', length: 256 },
+                    {
+                        name: 'AES-GCM',
+                        length: 256
+                    },
                     false,
                     ['encrypt', 'decrypt']
                 );
+
                 this.unlocked = true;
+
                 await this.load();
-                this.showToast('success', 'Vault Unlocked', 'Secure session active. Key is held in memory only.');
+
+                this.showToast(
+                    'success',
+                    'Vault Unlocked',
+                    'Secure session active. Key is held in memory only.'
+                );
 
                 // Arm the inactivity timer after the vault is open
                 this.$nextTick(() => this.initSessionTimeout());
+
             } catch (err) {
+
                 this.showToast(
                     'error',
                     'Key Derivation Failed',
                     'The cryptographic key could not be initialised.',
                     'Ensure your browser supports WebCrypto and that no extensions are blocking it.'
                 );
+
             } finally {
                 this.isUnlocking = false;
             }
@@ -342,6 +382,7 @@ createApp({
             this.previewOpen = true;
             this.previewError = null;
             this.previewContent = '';
+            this.canDelete = false;
 
             if (item.isText) {
                 try {
@@ -351,12 +392,33 @@ createApp({
                         item.payload
                     );
                     this.previewContent = new TextDecoder().decode(dec);
+                    this.canDelete = true;
                 } catch (err) {
                     this.previewError = {
                         context: 'Decryption Failed',
                         message: 'This asset could not be decrypted. The session key may be invalid, or the stored payload has been corrupted.',
                         action: 'Lock the vault and re-open it using the correct master key.',
                     };
+                }
+            } else {
+                try {
+
+                    await crypto.subtle.decrypt(
+                        { name: 'AES-GCM', iv: item.iv },
+                        this.cryptoKey,
+                        item.payload
+                    );
+
+                    this.canDelete = true;
+
+                } catch (err) {
+
+                    this.previewError = {
+                        context: 'Decryption Failed',
+                        message: 'This asset could not be decrypted. The session key may be invalid, or the stored payload has been corrupted.',
+                        action: 'Lock the vault and re-open it using the correct master key.',
+                    };
+
                 }
             }
         },
@@ -487,7 +549,7 @@ createApp({
             }
         },
 
-        /** Clear session — reload wipes the in-memory key. */
+        /** Clear session, reload wipes the in-memory key. */
         lock() {
             this.cleanupSessionTimeout();
             location.reload();

@@ -112,7 +112,7 @@
                 </div>
 
                 <input class="auth-input" v-model="password" type="password" placeholder="Enter Master Key"
-                    @keyup.enter="unlock" autofocus />
+                    @keyup.enter="unlock" autofocus required />
 
                 <button class="btn-primary" @click="unlock" :disabled="isUnlocking">
                     <div v-if="isUnlocking" class="spinner"></div>
@@ -370,7 +370,7 @@
 
                     <!-- Footer -->
                     <div class="preview-ft">
-                        <button class="btn-del" @click="deleteItem(selected.id)">
+                        <button class="btn-del" v-if="canDelete" @click="deleteItem(selected.id)">
                             <ion-icon name="trash-outline"></ion-icon>
                             Delete Entry
                         </button>
