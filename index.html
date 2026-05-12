@@ -23,11 +23,8 @@
         <div class="toast-container" aria-live="polite">
             <transition-group name="toast">
                 <div v-for="t in toasts" :key="t.id" :class="['toast', `toast--${t.type}`]" role="alert">
-                    <!-- Status icon -->
                     <ion-icon class="toast__icon"
                         :name="t.type === 'success' ? 'checkmark-circle' : t.type === 'error' ? 'alert-circle' : 'information-circle'"></ion-icon>
-
-                    <!-- Content -->
                     <div class="toast__body">
                         <div class="toast__context">{{ t.context }}</div>
                         <div class="toast__message">{{ t.message }}</div>
@@ -35,17 +32,60 @@
                             <strong>Fix:</strong> {{ t.action }}
                         </div>
                     </div>
-
-                    <!-- Dismiss -->
                     <button class="toast__close" @click="dismissToast(t.id)" aria-label="Dismiss">
                         <ion-icon name="close"></ion-icon>
                     </button>
-
-                    <!-- Auto-dismiss progress bar -->
                     <div class="toast__bar"></div>
                 </div>
             </transition-group>
         </div>
+
+        <!-- -----------------------------------
+             Session Timeout Warning Modal
+             Shown after 30 min of inactivity
+        ------------------------------------- -->
+        <transition name="timeout-fade">
+            <div v-if="showTimeoutWarning" class="timeout-overlay" role="dialog" aria-modal="true"
+                aria-labelledby="timeout-title">
+                <div class="timeout-card">
+
+                    <!-- Animated countdown ring -->
+                    <div class="timeout-ring-wrap">
+                        <svg class="timeout-ring" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <!-- Track -->
+                            <circle cx="36" cy="36" r="30" stroke="var(--border)" stroke-width="5" />
+                            <!-- Progress arc -->
+                            <circle cx="36" cy="36" r="30"
+                                :stroke="timeoutCountdown <= 10 ? 'var(--danger-text)' : 'var(--primary)'"
+                                stroke-width="5" stroke-linecap="round" :stroke-dasharray="countdownDash"
+                                stroke-dashoffset="0" transform="rotate(-90 36 36)"
+                                style="transition: stroke 0.4s ease;" />
+                        </svg>
+                        <span class="timeout-ring-num" :class="{ 'timeout-ring-num--danger': timeoutCountdown <= 10 }">
+                            {{ timeoutCountdown }}
+                        </span>
+                    </div>
+
+                    <h3 id="timeout-title" class="timeout-title">Session Expiring</h3>
+                    <p class="timeout-body">
+                        Your vault will be locked automatically due to inactivity.
+                        Keep the session open or lock immediately.
+                    </p>
+
+                    <div class="timeout-actions">
+                        <button class="btn-primary" @click="keepSessionActive">
+                            <ion-icon name="shield-checkmark-outline"></ion-icon>
+                            Keep Session Active
+                        </button>
+                        <button class="btn-timeout-lock" @click="lock">
+                            <ion-icon name="lock-closed-outline"></ion-icon>
+                            Lock Now
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </transition>
 
         <!-- Auth screen -->
         <div v-if="!unlocked" class="auth-overlay">
@@ -160,7 +200,31 @@
                                     <tr v-for="item in items" :key="item.id"
                                         :class="{ 'row-active': selected && selected.id === item.id }"
                                         @click="openPreview(item)">
-                                        <td style="font-weight:500;">{{ item.name }}</td>
+
+                                        <!-- ── Editable name cell ── -->
+                                        <td class="name-td">
+                                            <div class="entry-name-cell">
+
+                                                <!-- Edit mode: inline input -->
+                                                <template v-if="editingId === item.id">
+                                                    <input class="entry-name-input" v-model="editingName"
+                                                        :id="`edit-input-${item.id}`" @click.stop
+                                                        @keyup.enter="saveEdit" @keyup.escape="cancelEdit"
+                                                        @blur="saveEdit" maxlength="120" />
+                                                </template>
+
+                                                <!-- View mode: name + edit button -->
+                                                <template v-else>
+                                                    <span class="entry-name-text">{{ item.name }}</span>
+                                                    <button class="entry-edit-btn" @click.stop="startEdit(item)"
+                                                        title="Rename entry" aria-label="Rename entry">
+                                                        <ion-icon name="create-outline"></ion-icon>
+                                                    </button>
+                                                </template>
+
+                                            </div>
+                                        </td>
+
                                         <td><span class="type-badge">{{ item.isText ? 'TEXT' : 'FILE' }}</span></td>
                                         <td style="color:var(--text-muted);">{{ item.size }} KB</td>
                                         <td style="color:var(--text-muted);">
@@ -224,12 +288,21 @@
                             <div class="card-row"><span class="card-key">Key Storage</span><span
                                     class="card-val">Session memory only</span></div>
                         </div>
+                        <div class="card">
+                            <h4>Session Security</h4>
+                            <div class="card-row"><span class="card-key">Timeout</span><span class="card-val">30 minutes
+                                    of inactivity</span></div>
+                            <div class="card-row"><span class="card-key">Warning</span><span class="card-val">60-second
+                                    countdown before auto-lock</span></div>
+                            <div class="card-row"><span class="card-key">Triggers</span><span class="card-val">Mouse,
+                                    keyboard, touch, scroll</span></div>
+                        </div>
                         <div class="card card--danger">
                             <h4>Factory Reset</h4>
                             <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.65;">
                                 Wiping the vault permanently deletes the encryption salt and all stored ciphertext.
                                 <strong style="color:var(--danger-text);">This action is completely
-                                    irreversible.</strong>
+                                    irrecoverable.</strong>
                                 Ensure you have exported any critical data before proceeding.
                             </p>
                             <button class="btn-danger" @click="purgeVault">
@@ -262,7 +335,6 @@
 
                         <!-- Text asset -->
                         <template v-if="selected.isText">
-                            <!-- Structured error callout -->
                             <div v-if="previewError" class="err-callout">
                                 <ion-icon name="alert-circle"></ion-icon>
                                 <div>
@@ -273,8 +345,6 @@
                                     </div>
                                 </div>
                             </div>
-
-                            <!-- Decrypted content -->
                             <template v-else>
                                 <pre class="preview-code">{{ previewContent }}</pre>
                                 <button class="btn-preview" @click="copy">

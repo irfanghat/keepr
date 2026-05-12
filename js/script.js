@@ -1,6 +1,19 @@
 const { createApp } = Vue;
 const DB_NAME = "keepr_db";
 
+/* Session timeout constants  */
+
+// -------------------------------------
+// 30 minutes of inactivity
+// -------------------------------------
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+// -------------------------------------
+// Seconds to act before auto-lock
+// -------------------------------------
+const WARNING_DURATION_S = 60;
+const ACTIVITY_EVENTS = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+
 createApp({
     data() {
         return {
@@ -19,16 +32,18 @@ createApp({
             selected: null,
             previewOpen: false,
             previewContent: '',
-            // -------------------------------------
-            // { context, message, action }
-            // -------------------------------------
             previewError: null,
 
             /*  Toast Queue  */
-            // --------------------------------------
-            // { id, type, context, message, action }
-            // --------------------------------------
             toasts: [],
+
+            /* Inline name editing */
+            editingId: null,   // id of the item currently being renamed
+            editingName: '',     // current value of the rename input
+
+            /* Session timeout */
+            showTimeoutWarning: false,
+            timeoutCountdown: WARNING_DURATION_S,
         };
     },
 
@@ -37,7 +52,14 @@ createApp({
             return this.items
                 .reduce((acc, item) => acc + parseFloat(item.size), 0)
                 .toFixed(1);
-        }
+        },
+
+        /** SVG stroke-dasharray for the countdown ring (circumference = 2π × 30 ≈ 188.5) */
+        countdownDash() {
+            const circumference = 2 * Math.PI * 30; // r = 30
+            const filled = (this.timeoutCountdown / WARNING_DURATION_S) * circumference;
+            return `${filled.toFixed(2)} ${circumference.toFixed(2)}`;
+        },
     },
 
     /**  Bootstrap IndexedDB  */
@@ -63,17 +85,10 @@ createApp({
     },
 
     methods: {
+
         /********************************************
            TOAST SYSTEM
-        ******************************************* */
-
-        /**
-         * Push a new toast notification.
-         * @param {'success'|'error'|'info'} type
-         * @param {string} context  - What was attempted (e.g. "Decryption Failed")
-         * @param {string} message  - Human-readable detail
-         * @param {string|null} action - Optional remediation hint
-         */
+        ********************************************/
         showToast(type, context, message, action = null) {
             const id = Date.now() + Math.random();
             this.toasts.push({ id, type, context, message, action });
@@ -84,9 +99,182 @@ createApp({
             this.toasts = this.toasts.filter(t => t.id !== id);
         },
 
+
+        /********************************************
+           SESSION TIMEOUT
+        ********************************************/
+
+        /**
+         * Start activity tracking and arm the 30-minute inactivity timer.
+         * Called once after a successful unlock.
+         */
+        initSessionTimeout() {
+            // -----------------------------------------------------------
+            // Store the handler reference so we can remove it later
+            // -----------------------------------------------------------
+            this._activityHandler = () => {
+                if (!this.showTimeoutWarning) {
+                    this.resetSessionTimer();
+                }
+            };
+
+            ACTIVITY_EVENTS.forEach(ev =>
+                document.addEventListener(ev, this._activityHandler, { passive: true })
+            );
+
+            this.resetSessionTimer();
+        },
+
+        /** Arm (or re-arm) the 30-minute countdown. */
+        resetSessionTimer() {
+            clearTimeout(this._sessionTimer);
+            this._sessionTimer = setTimeout(
+                () => this.triggerTimeoutWarning(),
+                SESSION_TIMEOUT_MS
+            );
+        },
+
+        /** Show the warning modal and start the 60-second countdown. */
+        triggerTimeoutWarning() {
+            this.showTimeoutWarning = true;
+            this.timeoutCountdown = WARNING_DURATION_S;
+
+            this._warningInterval = setInterval(() => {
+                this.timeoutCountdown -= 1;
+                if (this.timeoutCountdown <= 0) {
+                    clearInterval(this._warningInterval);
+                    this.lock();
+                }
+            }, 1000);
+        },
+
+        /** User clicked "Keep Session Active" – dismiss modal and reset timer. */
+        keepSessionActive() {
+            this.showTimeoutWarning = false;
+            clearInterval(this._warningInterval);
+            this.resetSessionTimer();
+            this.showToast('success', 'Session Extended', 'Your vault session has been refreshed.');
+        },
+
+        /** Tear down all timers and event listeners (called before lock). */
+        cleanupSessionTimeout() {
+            clearTimeout(this._sessionTimer);
+            clearInterval(this._warningInterval);
+            if (this._activityHandler) {
+                ACTIVITY_EVENTS.forEach(ev =>
+                    document.removeEventListener(ev, this._activityHandler)
+                );
+            }
+        },
+
+
+        /********************************************
+           INLINE ENTRY-NAME EDITING
+        ********************************************/
+
+        /**
+         * Enter edit mode for a table row.
+         * The event is stopped so it doesn't also trigger openPreview.
+         */
+        startEdit(item) {
+            this.editingId = item.id;
+            this.editingName = item.name;
+
+            this.$nextTick(() => {
+                const input = document.getElementById(`edit-input-${item.id}`);
+                if (input) { input.focus(); input.select(); }
+            });
+        },
+
+        /** Commit the rename (called on Enter or blur). */
+        saveEdit() {
+            // --------------------------------------------------------------------
+            // _editCancelled is set by cancelEdit() to prevent blur from saving
+            // --------------------------------------------------------------------
+            if (this._editCancelled) {
+                this._editCancelled = false;
+                return;
+            }
+            if (!this.editingId) return;
+
+            const trimmed = this.editingName.trim();
+            const id = this.editingId;
+
+            this.editingId = null;
+            this.editingName = '';
+
+            // ------------------------
+            // Ignore empty names
+            // ------------------------
+            if (!trimmed) return;
+
+            const original = this.items.find(i => i.id === id)?.name;
+            // -----------------------------
+            // No change
+            // -----------------------------
+            if (trimmed === original) return;
+
+            this.updateItemName(id, trimmed);
+        },
+
+        /** Discard the rename without saving (Escape key). */
+        cancelEdit() {
+            this._editCancelled = true;
+            this.editingId = null;
+            this.editingName = '';
+
+            // ------------------------------------------------
+            // Clear the flag after the blur event has fired
+            // ------------------------------------------------
+            setTimeout(() => { this._editCancelled = false; }, 50);
+        },
+
+        /** Persist the new name to IndexedDB and refresh the item list. */
+        async updateItemName(id, newName) {
+            const item = this.items.find(i => i.id === id);
+            if (!item) return;
+
+            try {
+                const updated = { ...item, name: newName };
+
+                await new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('secrets', 'readwrite');
+                    tx.objectStore('secrets').put(updated);
+                    tx.oncomplete = resolve;
+                    tx.onerror = () => reject(tx.error);
+                });
+
+                // ------------------------------------------------
+                // Reload and re-sync the selected reference
+                // ------------------------------------------------
+                const freshItems = await new Promise((resolve, reject) => {
+                    const tx = this.db.transaction('secrets', 'readonly');
+                    const req = tx.objectStore('secrets').getAll();
+                    req.onsuccess = () => resolve(req.result);
+                    req.onerror = () => reject(req.error);
+                });
+
+                this.items = freshItems;
+
+                if (this.selected && this.selected.id === id) {
+                    this.selected = this.items.find(i => i.id === id) || null;
+                }
+
+                this.showToast('success', 'Entry Renamed', `Saved as "${newName}".`);
+            } catch (err) {
+                this.showToast(
+                    'error',
+                    'Rename Failed',
+                    'Could not update the entry name in the database.',
+                    'Refresh the page and try again.'
+                );
+            }
+        },
+
+
         /********************************************
            VAULT OPERATIONS
-        ******************************************* */
+        ********************************************/
 
         /** Derive CryptoKey from master password via PBKDF2, then unlock. */
         async unlock() {
@@ -116,6 +304,9 @@ createApp({
                 this.unlocked = true;
                 await this.load();
                 this.showToast('success', 'Vault Unlocked', 'Secure session active. Key is held in memory only.');
+
+                // Arm the inactivity timer after the vault is open
+                this.$nextTick(() => this.initSessionTimeout());
             } catch (err) {
                 this.showToast(
                     'error',
@@ -161,7 +352,6 @@ createApp({
                     );
                     this.previewContent = new TextDecoder().decode(dec);
                 } catch (err) {
-                    /* Render structured error in the panel instead of raw text */
                     this.previewError = {
                         context: 'Decryption Failed',
                         message: 'This asset could not be decrypted. The session key may be invalid, or the stored payload has been corrupted.',
@@ -245,7 +435,6 @@ createApp({
                     'Check the file is accessible and not corrupted, then try again.'
                 );
             }
-            /* Reset input so the same file can be uploaded again if needed */
             e.target.value = '';
         },
 
@@ -292,12 +481,17 @@ createApp({
         /** Irreversibly delete the IndexedDB database. */
         purgeVault() {
             if (confirm('Permanently wipe ALL vault data? This cannot be undone.')) {
+                this.cleanupSessionTimeout();
                 indexedDB.deleteDatabase(DB_NAME);
                 location.reload();
             }
         },
 
-        /** Clear session, reload page wipes in-memory key. */
-        lock() { location.reload(); },
+        /** Clear session — reload wipes the in-memory key. */
+        lock() {
+            this.cleanupSessionTimeout();
+            location.reload();
+        },
     }
+
 }).mount('#app');
